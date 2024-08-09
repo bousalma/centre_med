@@ -1,0 +1,10 @@
+
+fastapi
+numpy
+pandas
+pydantic
+requests
+snowflake-connector-python
+streamlit
+uvicorn
+
