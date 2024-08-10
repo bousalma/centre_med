@@ -62,6 +62,12 @@ class Lit(BaseModel):
     numero: str
     nombre_chambre: str
     is_occupied: bool
+class TransferRequest(BaseModel):
+    patient_id: int
+    new_bed_id: int
+    new_department_id: int
+    transfer_type: str
+    new_hospital_id: int = None
 # Endpoints
 @app.post("/hopitaux/")
 async def create_hopital(hopital: Hopital):
@@ -210,3 +216,86 @@ async def list_lits():
         return lits_list
     else:
         raise HTTPException(status_code=500, detail="Erreur lors de la récupération des lits")
+@app.post("/transfer")
+def transfer_patient(transfer: TransferRequest):
+    try:
+        # Update old bed to false
+        query_update_old_bed = """
+            UPDATE lits 
+            SET is_occupied = FALSE 
+            WHERE id = (SELECT bed_id FROM patients WHERE id = %s)
+        """
+        SnowflakeConnectionManager.execute_query(query_update_old_bed, (transfer.patient_id,))
+        
+        # Update new bed to true
+        query_update_new_bed = """
+            UPDATE lits 
+            SET is_occupied = TRUE 
+            WHERE id = %s
+        """
+        SnowflakeConnectionManager.execute_query(query_update_new_bed, (transfer.new_bed_id,))
+
+        if transfer.transfer_type == "internal":
+            # Internal transfer: Update patient's bed and department
+            query_internal_transfer = """
+                UPDATE patients 
+                SET bed_id = %s, department_id = %s 
+                WHERE id = %s
+            """
+            SnowflakeConnectionManager.execute_query(query_internal_transfer, 
+                                                     (transfer.new_bed_id, transfer.new_department_id, transfer.patient_id))
+            
+            # Insert transfer record
+            query_insert_transfer_record = """
+                INSERT INTO patient_transfers 
+                (patient_id, old_bed_id, new_bed_id, transfer_type, old_department_id, new_department_id, old_hospital_id, new_hospital_id)
+                VALUES (%s, 
+                        (SELECT bed_id FROM patients WHERE id = %s), 
+                        %s, 'internal', 
+                        (SELECT department_id FROM patients WHERE id = %s), 
+                        %s, 
+                        (SELECT hospital_id FROM patients WHERE id = %s), 
+                        (SELECT hospital_id FROM patients WHERE id = %s))
+            """
+            SnowflakeConnectionManager.execute_query(query_insert_transfer_record, 
+                                                     (transfer.patient_id, transfer.patient_id, 
+                                                      transfer.new_bed_id, transfer.patient_id, 
+                                                      transfer.new_department_id, transfer.patient_id, 
+                                                      transfer.patient_id))
+
+        elif transfer.transfer_type == "external":
+            if not transfer.new_hospital_id:
+                raise HTTPException(status_code=400, detail="New hospital ID is required for external transfers")
+
+            # External transfer: Update patient's bed, department, and hospital
+            query_external_transfer = """
+                UPDATE patients 
+                SET bed_id = %s, department_id = %s, hospital_id = %s 
+                WHERE id = %s
+            """
+            SnowflakeConnectionManager.execute_query(query_external_transfer, 
+                                                     (transfer.new_bed_id, transfer.new_department_id, 
+                                                      transfer.new_hospital_id, transfer.patient_id))
+            
+            # Insert transfer record
+            query_insert_transfer_record_external = """
+                INSERT INTO patient_transfers 
+                (patient_id, old_bed_id, new_bed_id, transfer_type, old_department_id, new_department_id, old_hospital_id, new_hospital_id)
+                VALUES (%s, 
+                        (SELECT bed_id FROM patients WHERE id = %s), 
+                        %s, 'external', 
+                        (SELECT department_id FROM patients WHERE id = %s), 
+                        %s, 
+                        (SELECT hospital_id FROM patients WHERE id = %s), 
+                        %s)
+            """
+            SnowflakeConnectionManager.execute_query(query_insert_transfer_record_external, 
+                                                     (transfer.patient_id, transfer.patient_id, 
+                                                      transfer.new_bed_id, transfer.patient_id, 
+                                                      transfer.new_department_id, transfer.patient_id, 
+                                                      transfer.new_hospital_id))
+
+        return {"message": "Patient transferred successfully"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

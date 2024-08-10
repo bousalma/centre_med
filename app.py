@@ -217,6 +217,54 @@ def get_lit():
         st.error(f"Erreur lors de la récupération des lits : {response.text}")
 # Streamlit Interface
 selected_option = st.sidebar.selectbox("Select an option", ["Départements", "Hôpitaux", "Gestion des Hôpitaux et Départements", "Gestion Chambre", "Gestion Lits"])
+def handle_internal_transfer(patient_id):
+    departments = requests.get(f"http://127.0.0.1:8000/departments").json()["departments"]
+    new_department_id = st.selectbox("Select New Department", options=[(d["id"], d["name"]) for d in departments], format_func=lambda x: x[1])
+    
+    beds = requests.get(f"http://127.0.0.1:8000/beds").json()["beds"]
+    new_bed_id = st.selectbox("Select New Bed", options=[(b["id"], b["name"]) for b in beds], format_func=lambda x: x[1])
+    
+    if st.button("Transfer Patient"):
+        response = requests.post(f"http://127.0.0.1:8000/transfer", json={
+            "patient_id": patient_id,
+            "transfer_type": "internal",
+            "new_department_id": new_department_id[0],
+            "new_bed_id": new_bed_id[0]
+        })
+        st.success(response.json().get("message", "Transfer successful!"))
+
+def handle_external_transfer(patient_id):
+    hospitals = requests.get(f"http://127.0.0.1:8000/hospitals").json()["hospitals"]
+    new_hospital_id = st.selectbox("Select New Hospital", options=[(h["id"], h["name"]) for h in hospitals], format_func=lambda x: x[1])
+    
+    departments = requests.get(f"http://127.0.0.1:8000/departments").json()["departments"]
+    new_department_id = st.selectbox("Select New Department", options=[(d["id"], d["name"]) for d in departments], format_func=lambda x: x[1])
+    
+    beds = requests.get(f"http://127.0.0.1:8000/beds").json()["beds"]
+    new_bed_id = st.selectbox("Select New Bed", options=[(b["id"], b["name"]) for b in beds], format_func=lambda x: x[1])
+    
+    if st.button("Transfer Patient"):
+        response = requests.post(f"http://127.0.0.1:8000/transfer", json={
+            "patient_id": patient_id,
+            "transfer_type": "external",
+            "new_department_id": new_department_id[0],
+            "new_bed_id": new_bed_id[0],
+            "new_hospital_id": new_hospital_id[0]
+        })
+        st.success(response.json().get("message", "Transfer successful!"))
+
+def manage_patient_transfer():
+    st.write("## Gestion du Transfert de Patient")
+    
+    patients = requests.get(f"http://127.0.0.1:8000/patients").json()["patients"]
+    patient_id = st.selectbox("Select Patient", options=[(p["id"], p["full_name"]) for p in patients], format_func=lambda x: x[1])
+    
+    transfer_type = st.radio("Transfer Type", options=["Internal", "External"])
+    
+    if transfer_type == "Internal":
+        handle_internal_transfer(patient_id[0])
+    elif transfer_type == "External":
+        handle_external_transfer(patient_id[0])
 
 if selected_option == "Départements":
     option = st.sidebar.radio("", ["Voir Départements", "Ajouter Département"])
@@ -249,4 +297,5 @@ elif option == "Ajouter Lit":
     add_lit()
 elif option == "list lits":
     get_lit()
-
+elif option == "Transfert de Patient":
+    manage_patient_transfer()
